@@ -1,0 +1,256 @@
+---
+title: "STAT432_Final_Project"
+output: html_document
+---
+```{r,include = FALSE,warning=FALSE}
+library(dplyr)
+library(MASS)
+library(tibble)
+library(rsample)
+library(caret)
+library(knitr)
+library(kableExtra)
+library(rpart)
+library("randomForest")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+***
+
+# Abstract
+
+ > Football games are always a game that all the world pays great attention to and the football stars sometimes are  given much more attention than movie stars. Statistical learning techniques are used to determine if it is possible to effectively predict athletes' wages from data that would be available with many different preditors.
+
+***
+
+# Introduction
+
+Football, or as Americans call it, soccer, is the world’s largest spectator sports. Such large amount of attention would inevitably bring huge amount of capital into the sport. As a result, athletes are paid very handsomely. For example, Ronaldo's annual income is one of  the highest, and he has 93 million US dollars in accounts every year. Messi ranked second with an annual income of 80 million US dollars. His salary and bonus are slightly lower than Ronaldo's, 53 million US dollars, and 27 million US dollars in business income. Famous football stars attract our great attention of their high income.
+So it came the questions like "what attributes could earn athlete higher wages", and "how well are athletes across the leagues".
+To make such predictions, we perform statistical learning techniques on the FIFA19 dataset[^1], which includes detailed attributes for every player of last year's latest edition. The game provides a reasonably accurate assessment of player abilities and a tidy-enough dataset to work on.
+
+***
+
+# Methods
+
+A variety of statistical learning techniques were applied. We have used rpart, knn and linear model. We have also used AIC to cut down model size and select the best model. This step is necessary because there exist some obvious meaningless variables in terms of predicting. i.e., The unique ID in the game for a certain player and its jersey number would not be as significant as the player attributes.
+
+# Cleaning data
+
+```{r,echo=FALSE}
+df = data.table::fread("https://raw.githubusercontent.com/amanthedorkknight/fifa18-all-player-statistics/master/2019/data.csv")
+```
+
+```{r,include=FALSE}
+df = na.omit(df)
+```
+
+## Convert value, wage and weight column to numeric value
+
+The wage, weight and value variables are not in numeric format which is difficult for our use, so we convert them to numeric value. 
+```{r,include=FALSE}
+df$Value_numeric = as.numeric(gsub("[^0-9.]", "", df[,Value]))
+df$Wage_numeric = as.numeric(gsub("[^0-9.]", "", df[,Wage]))
+df$Weight_numeric = as.numeric(gsub("[^0-9.]", "", df[,Weight]))
+df = df[df$Wage_numeric!=0,]
+df
+```
+# Dplyr
+```{r,include=FALSE}
+df_maxValue_n = df %>%
+  group_by(Nationality)%>%
+  summarise(max_value =max(Value_numeric))
+df_maxWage_n = df %>%
+  group_by(Nationality)%>%
+  summarise(max_wage = max(Wage_numeric))
+df_avgValue_n = df %>%
+  group_by(Nationality)%>%
+  summarise(avg_value = mean(Value_numeric))
+df_avgWage_n = df %>%
+  group_by(Nationality)%>%
+  summarise(avg_wage = mean(Wage_numeric))
+df_maxValue_c = df %>%
+  group_by(Club)%>%
+  summarise(max_value = max(Value_numeric))
+df_maxWage_c= df %>%
+  group_by(Club)%>%
+  summarise(max_wage = max(Wage_numeric))
+
+df_avgValue_c = df %>%
+  group_by(Club)%>%
+  summarise(avg_value = mean(Value_numeric))
+df_avgWage_c= df %>%
+  group_by(Club)%>%
+  summarise(avg_wage = mean(Wage_numeric))
+```
+
+## Find 10 countries with largest maximum and average wage
+
+```{r,echo=FALSE}
+df_maxWage_n = df_maxWage_n[order(-df_maxWage_n$max_wage),] 
+max_wage_ten_nation = head(df_maxWage_n,10)
+kable(max_wage_ten_nation)%>%
+kable_styling(bootstrap_options = c("striped")) %>%
+  kable_styling(full_width = FALSE)
+```
+
+
+```{r,echo=FALSE}
+df_avgWage_n = df_avgWage_n[order(-df_avgWage_n$avg_wage),]
+avg_wage_ten_nation = head(df_avgWage_n,10)
+
+kable(avg_wage_ten_nation)%>%
+kable_styling(bootstrap_options = c("striped")) %>%
+  kable_styling(full_width = FALSE)
+```
+
+## Find 10 clubs with largest maximum and average wage
+```{r,echo=FALSE}
+df_maxWage_c = df_maxWage_c[order(- df_maxWage_c$max_wage),] 
+max_wage_ten_club = head(df_maxWage_c,10)
+
+kable(max_wage_ten_club)%>%
+kable_styling(bootstrap_options = c("striped")) %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r,echo=FALSE}
+df_avgWage_c = df_avgWage_c[order(- df_avgWage_c$avg_wage),]
+avg_wage_ten_club = head(df_avgWage_c,10)
+
+kable(avg_wage_ten_club)%>%
+kable_styling(bootstrap_options = c("striped")) %>%
+  kable_styling(full_width = FALSE)
+```
+
+# Modeling
+
+## Split to training and testing
+```{r,include=FALSE}
+df_t = as_tibble(df)
+
+# fix random splitting
+set.seed(42)
+# test-train split
+tst_trn_split = initial_split(df_t, prop = 0.80)
+df_trn = training(tst_trn_split)
+df_tst = testing(tst_trn_split)
+```
+
+## Fit linear model using all predictor
+
+The original predictor we choose are player's age, potential, weight, crossing score, finishing score, Heading Accuracy, Reactions score, balanace score and ball control score.
+```{r,include=FALSE}
+mod1 = lm(Wage_numeric ~ Age + Potential + Weight_numeric + Crossing  + Finishing + HeadingAccuracy+Reactions +Balance+BallControl, data = df_trn)
+summary(mod1)
+```
+
+
+## Using AIC to select the best predictor
+```{r,echo = TRUE,eval= FALSE}
+stepAIC(mod1, direction = "both")
+```
+
+## Linear model
+```{r,echo=FALSE}
+mod2 = lm(Wage_numeric ~ Age + Potential + Weight_numeric + Crossing + 
+    Finishing + HeadingAccuracy + Reactions,data = df_trn)
+
+pred = predict(mod2, df_tst)
+lmrmse = RMSE(df_tst$Wage_numeric, pred)
+summary(mod2)
+```
+**All predictors are significant**
+
+## KNN model
+
+```{r}
+mod_knn_5 = knnreg(Wage_numeric ~ Age + Potential + Weight_numeric + Crossing + 
+    Finishing + HeadingAccuracy + Reactions,data = df_trn,k = 5)
+
+mod_knn_10 = knnreg(Wage_numeric ~ Age + Potential + Weight_numeric + Crossing + 
+    Finishing + HeadingAccuracy + Reactions,data = df_trn , k = 10)
+
+pred_5 = predict(mod_knn_5, df_tst)
+knn5_rmse = RMSE(df_tst$Wage_numeric, pred_5)
+
+pred_10 = predict(mod_knn_10, df_tst)
+knn10_rmse = RMSE(df_tst$Wage_numeric, pred_10)
+```
+
+## Decision tree model
+
+```{r}
+mod_dt_01 = rpart(Wage_numeric ~ Age + Potential + Weight_numeric + Crossing + 
+    Finishing + HeadingAccuracy + Reactions,data = df_trn , cp = 0.01)
+
+mod_dt_001 = rpart(Wage_numeric ~ Age + Potential + Weight_numeric + Crossing + 
+    Finishing + HeadingAccuracy + Reactions,data = df_trn , cp = 0.001)
+
+pred_01 = predict(mod_dt_01, df_tst)
+dt_rmse_01 = RMSE(df_tst$Wage_numeric, pred_01)
+
+pred_001 = predict(mod_dt_001, df_tst)
+dt_rmse_001 = RMSE(df_tst$Wage_numeric, pred_001)
+```
+
+
+## Summary of RMSE for each model
+```{r,echo=FALSE}
+tibble_df = data.frame(model = c("Linear model","KNN model k = 5","KNN model k = 10","Desicion Tree with cp = 0.01","Desicion Tree with cp = 0.001") , RMSE = c(lmrmse,knn5_rmse , knn10_rmse,dt_rmse_01 ,dt_rmse_001 ))
+kable(tibble_df)%>%
+kable_styling(bootstrap_options = c("striped")) %>%
+  kable_styling(full_width = FALSE)
+```
+
+# Plot age distribution of five clubs with largest average wage
+```{r,echo = FALSE}
+df_subset = df[df$Club == "Real Madrid"|df$Club == "FC Barcelona"|df$Club == "Juventus"|df$Club == "Manchester City"|df$Club == "Manchester United",]
+df_subset = df_subset[which(df_subset$Wage_numeric > 0),]
+ggplot(df_subset,aes(Age)) + facet_wrap(~ Club)+geom_histogram(aes(fill = Club))
+```
+
+## Distribusion of position in different age
+```{r,echo = FALSE}
+ggplot(df, aes(x=Age, y = Position ) ) +
+  stat_bin2d(bins = 20)
+```
+
+
+```{r,include = FALSE}
+RMSE = function(acutual , pred){
+  sqrt(mean((acutual - pred)^2))
+}
+```
+
+***
+
+# Discussion
+
+Predicting for wage is quite difficult and there are a lot of factors be considered. Top clubs like Real Madrid , FC Barcelona and Bayern Munich tend to give out the highest wages and they have a distinguished groups of players that are hardly replaceable. Therefore, approximately 100 players earn the highest wages on their respective positions. 
+	 
+On the other hand, even though top athletes are paid astronomical wages, a majority of players are paid less than 50k. Thus it would be difficult for the model to perform ideally across the whole dataset as it essentially covers clubs at all levels. The task is even more difficult as you consider there are leagues in the world, for example, Chinese leagues, that under huge development stages where they give unproportionally high wages to more average players to attract them. 
+The above notion may be somewhat obscure. A demonstrative example to demonstrate this would be the following pair of players. Consider Willian and Oscar. Both players had played for Chelsea whereas Willian is still playing for Chelsea. They have the same nationality, about the same position on the field and similar international experience for Brazil. However, whereas Willian earn a somewhat modest 120k a week, Oscar earns around a whopping 400k a week. More than 3 times than that of Willian! This should give the reader some idea on the significance of difference between the leagues. 
+
+On the other hand, I would further elaborate on the  ability evaluation of the dataset. FIFA does not provide the most accurate assessment with regards to player abilities. The game functions essentially like NBA2k in the sense that it gathers data using player performance. Nowadays EA holds huge scale of collaboration between the game and clubs prior to the release of new generation. One part of such collaboration is for players to ‘guess’ their FIFA ratings. From this I suppose some credibility can be given on the accuracy of evaluation. In an ideal case, we would obtain some information from soccer statistics site like Squawaka or 442, but this would require techniques like a web crawler and significant data set manipulation techniques that would require more fundamental techniques. 
+
+# Appendix
+
+## Data Dictionary
+
+- 'Wage_numeric' - Numeric value of current wqge for each player.
+- 'Value_numeric' - Numeric value of cuurent value for each player.
+- 'Age' - Age for each player.
+- 'Potential' - The potential rating for each player.
+- 'Weight_numeric' - Numeric value of current weight for each player.
+- 'Crossing' - Crossing rating on scale of 100.
+- 'Finishing' - Finishing rating on scale of 100.
+- 'HeadAccuracy' - Head accuracy rating on scale of 100.
+- 'Reactions' - Reactions rating on scale of 100.
+- 'Balance' - Balance rating on scale of 100.
+- 'BallControl' - Ball control rating on scale of 100.
+
+[^1]: [Kaggle: FIFA 19 Complete player dataset](https://www.kaggle.com/karangadiya/fifa19)
